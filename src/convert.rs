@@ -9,7 +9,9 @@ use std::{
 };
 use windows_sys::Win32::Storage::FileSystem::GetDiskFreeSpaceExW;
 
-const SYNC: [u8; 12] = [0, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0];
+const SYNC: [u8; 12] = [
+    0, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0,
+];
 
 pub struct Plan {
     pub src: PathBuf,
@@ -29,7 +31,10 @@ fn bad(m: impl Into<String>) -> io::Error {
 }
 
 pub fn prepare(path: &Path) -> io::Result<Source> {
-    let ext = path.extension().map(|e| e.to_string_lossy().to_lowercase()).unwrap_or_default();
+    let ext = path
+        .extension()
+        .map(|e| e.to_string_lossy().to_lowercase())
+        .unwrap_or_default();
     match ext.as_str() {
         "cue" => from_cue(path),
         "nrg" => from_nrg(path),
@@ -110,7 +115,8 @@ fn msf(s: &str) -> Option<u64> {
 fn from_cue(cue: &Path) -> io::Result<Source> {
     let bytes = std::fs::read(cue)?;
     // shortcut: non-UTF-8 cues are decoded as Latin-1, other ANSI code pages may mangle names.
-    let text = String::from_utf8(bytes.clone()).unwrap_or_else(|_| bytes.iter().map(|&b| b as char).collect());
+    let text = String::from_utf8(bytes.clone())
+        .unwrap_or_else(|_| bytes.iter().map(|&b| b as char).collect());
     let dir = cue.parent().unwrap_or(Path::new("."));
     let (mut file, mut binary) = (None::<PathBuf>, true);
     let mut layout = None::<(u64, u64)>; // current track if it is a data track
@@ -141,13 +147,21 @@ fn from_cue(cue: &Path) -> io::Result<Source> {
                     if !binary {
                         return Err(bad("data track is in a file that is not BINARY"));
                     }
-                    plan = Some(Plan { src, offset: frames * stride, stride, user_off, sectors: 0 });
+                    plan = Some(Plan {
+                        src,
+                        offset: frames * stride,
+                        stride,
+                        user_off,
+                        sectors: 0,
+                    });
                 }
             }
             _ => {}
         }
     }
-    let mut p = plan.ok_or_else(|| bad("audio-only images, or images without a data track, are not supported"))?;
+    let mut p = plan.ok_or_else(|| {
+        bad("audio-only images, or images without a data track, are not supported")
+    })?;
     let stop = end.unwrap_or(p.src.metadata()?.len());
     p.sectors = stop.saturating_sub(p.offset) / p.stride;
     Ok(Source::Extract(p))
@@ -176,7 +190,8 @@ fn from_nrg(path: &Path) -> io::Result<Source> {
     f.seek(SeekFrom::Start(chunks))?;
     loop {
         let mut h = [0u8; 8];
-        f.read_exact(&mut h).map_err(|_| bad("NRG file has no data track"))?;
+        f.read_exact(&mut h)
+            .map_err(|_| bad("NRG file has no data track"))?;
         let size = be32(&h[4..]) as usize;
         let id = [h[0], h[1], h[2], h[3]];
         if &id == b"END!" {
@@ -193,7 +208,10 @@ fn from_nrg(path: &Path) -> io::Result<Source> {
             return Err(bad("invalid NRG file"));
         }
         let (offset, tsize) = if wide {
-            (u64::from_be_bytes(body[..8].try_into().unwrap()), u64::from_be_bytes(body[8..16].try_into().unwrap()))
+            (
+                u64::from_be_bytes(body[..8].try_into().unwrap()),
+                u64::from_be_bytes(body[8..16].try_into().unwrap()),
+            )
         } else {
             (be32(&body[..4]), be32(&body[4..8]))
         };
@@ -201,8 +219,18 @@ fn from_nrg(path: &Path) -> io::Result<Source> {
         f2.seek(SeekFrom::Start(offset))?;
         let mut head = [0u8; 16];
         let raw = f2.read_exact(&mut head).is_ok() && head[..12] == SYNC;
-        let (stride, user_off) = if raw { (2352, raw_user_off(head[15])?) } else { (2048, 0) };
-        return Ok(Source::Extract(Plan { src: path.to_path_buf(), offset, stride, user_off, sectors: tsize / stride }));
+        let (stride, user_off) = if raw {
+            (2352, raw_user_off(head[15])?)
+        } else {
+            (2048, 0)
+        };
+        return Ok(Source::Extract(Plan {
+            src: path.to_path_buf(),
+            offset,
+            stride,
+            user_off,
+            sectors: tsize / stride,
+        }));
     }
 }
 
@@ -215,7 +243,12 @@ pub fn free_space(dir: &Path) -> u64 {
 }
 
 /// Streams the user data of every sector into `out` using two fixed 1 MiB buffers.
-pub fn extract(p: &Plan, out: &Path, cancel: &AtomicBool, progress: &mut dyn FnMut(u8)) -> io::Result<()> {
+pub fn extract(
+    p: &Plan,
+    out: &Path,
+    cancel: &AtomicBool,
+    progress: &mut dyn FnMut(u8),
+) -> io::Result<()> {
     let mut r = BufReader::with_capacity(1 << 20, File::open(&p.src)?);
     r.seek(SeekFrom::Start(p.offset))?;
     let mut w = BufWriter::with_capacity(1 << 20, File::create(out)?);
@@ -245,7 +278,9 @@ mod tests {
     }
 
     fn payload(n: usize) -> Vec<u8> {
-        (0..n * 2048).map(|i| (i / 2048 * 7 + i % 251) as u8).collect()
+        (0..n * 2048)
+            .map(|i| (i / 2048 * 7 + i % 251) as u8)
+            .collect()
     }
 
     fn wrap(p: &[u8], stride: usize, mode: u8, user_off: usize) -> Vec<u8> {
@@ -261,7 +296,9 @@ mod tests {
     }
 
     fn run(src: Source, d: &Path) -> Vec<u8> {
-        let Source::Extract(p) = src else { panic!("expected Extract") };
+        let Source::Extract(p) = src else {
+            panic!("expected Extract")
+        };
         let out = d.join("out.iso");
         extract(&p, &out, &AtomicBool::new(false), &mut |_| {}).unwrap();
         std::fs::read(out).unwrap()
@@ -274,7 +311,11 @@ mod tests {
         for (stride, mode, uo) in [(2352, 1, 16), (2352, 2, 24), (2448, 1, 16)] {
             let f = d.join("a.iso");
             std::fs::write(&f, wrap(&pl, stride, mode, uo)).unwrap();
-            assert_eq!(run(prepare(&f).unwrap(), &d), pl, "stride {stride} mode {mode}");
+            assert_eq!(
+                run(prepare(&f).unwrap(), &d),
+                pl,
+                "stride {stride} mode {mode}"
+            );
         }
     }
 
@@ -321,7 +362,11 @@ mod tests {
     fn cue_audio_only_is_error() {
         let d = dir("cue3");
         std::fs::write(d.join("a.bin"), vec![1u8; 2352]).unwrap();
-        std::fs::write(d.join("x.cue"), "FILE a.bin BINARY\n TRACK 01 AUDIO\n  INDEX 01 00:00:00\n").unwrap();
+        std::fs::write(
+            d.join("x.cue"),
+            "FILE a.bin BINARY\n TRACK 01 AUDIO\n  INDEX 01 00:00:00\n",
+        )
+        .unwrap();
         assert!(prepare(&d.join("x.cue")).is_err());
     }
 

@@ -31,7 +31,7 @@ pub struct Mount {
     device: String, // e.g. \Device\CdRom1
     pub letter: Option<char>,
     pub image: PathBuf,
-    pub size: u64,        // bytes of the mounted ISO
+    pub size: u64,       // bytes of the mounted ISO
     pub converted: bool, // true when extracted from CUE/BIN/NRG/...
     temp: Option<PathBuf>,
 }
@@ -53,18 +53,40 @@ pub fn attach(iso: &Path, image: PathBuf, temp: Option<PathBuf>) -> io::Result<M
     };
     let mut h: HANDLE = null_mut();
     unsafe {
-        let r = OpenVirtualDisk(&st, p.as_ptr(), VIRTUAL_DISK_ACCESS_READ, OPEN_VIRTUAL_DISK_FLAG_NONE, null(), &mut h);
+        let r = OpenVirtualDisk(
+            &st,
+            p.as_ptr(),
+            VIRTUAL_DISK_ACCESS_READ,
+            OPEN_VIRTUAL_DISK_FLAG_NONE,
+            null(),
+            &mut h,
+        );
         if r != 0 {
             return Err(io::Error::from_raw_os_error(r as i32));
         }
         // No PERMANENT_LIFETIME flag: closing the handle (or dying) detaches the drive.
-        let r = AttachVirtualDisk(h, null_mut(), ATTACH_VIRTUAL_DISK_FLAG_READ_ONLY, 0, null(), null());
+        let r = AttachVirtualDisk(
+            h,
+            null_mut(),
+            ATTACH_VIRTUAL_DISK_FLAG_READ_ONLY,
+            0,
+            null(),
+            null(),
+        );
         if r != 0 {
             CloseHandle(h);
             return Err(io::Error::from_raw_os_error(r as i32));
         }
         let size = iso.metadata().map(|m| m.len()).unwrap_or(0);
-        let mut m = Mount { handle: h, device: String::new(), letter: None, image, size, converted: temp.is_some(), temp };
+        let mut m = Mount {
+            handle: h,
+            device: String::new(),
+            letter: None,
+            image,
+            size,
+            converted: temp.is_some(),
+            temp,
+        };
         // mountmgr assigns the letter asynchronously; slower discs are picked up by resolve().
         for _ in 0..10 {
             if m.resolve() {
@@ -82,7 +104,11 @@ fn physical_device(h: HANDLE) -> String {
     if unsafe { GetVirtualDiskPhysicalPath(h, &mut size, buf.as_mut_ptr()) } != 0 {
         return String::new();
     }
-    from_wide(&buf).to_ascii_uppercase().strip_prefix(r"\\.\CDROM").map(|n| format!(r"\Device\CdRom{n}")).unwrap_or_default()
+    from_wide(&buf)
+        .to_ascii_uppercase()
+        .strip_prefix(r"\\.\CDROM")
+        .map(|n| format!(r"\Device\CdRom{n}"))
+        .unwrap_or_default()
 }
 
 fn letter_device(letter: char) -> Option<String> {

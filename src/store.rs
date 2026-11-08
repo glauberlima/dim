@@ -11,14 +11,23 @@ fn dir() -> Option<PathBuf> {
 }
 
 pub fn load_recent() -> Vec<PathBuf> {
-    let text = dir().and_then(|d| fs::read_to_string(d.join("recent.txt")).ok()).unwrap_or_default();
-    text.lines().filter(|l| !l.is_empty()).take(MAX_RECENT).map(PathBuf::from).collect()
+    let text = dir()
+        .and_then(|d| fs::read_to_string(d.join("recent.txt")).ok())
+        .unwrap_or_default();
+    text.lines()
+        .filter(|l| !l.is_empty())
+        .take(MAX_RECENT)
+        .map(PathBuf::from)
+        .collect()
 }
 
 pub fn save_recent(list: &[PathBuf]) {
     if let Some(d) = dir() {
         let _ = fs::create_dir_all(&d);
-        let text: Vec<String> = list.iter().map(|p| p.to_string_lossy().into_owned()).collect();
+        let text: Vec<String> = list
+            .iter()
+            .map(|p| p.to_string_lossy().into_owned())
+            .collect();
         let _ = fs::write(d.join("recent.txt"), text.join("\n"));
     }
 }
@@ -39,14 +48,20 @@ pub fn push_recent(list: &mut Vec<PathBuf>, p: PathBuf) {
 /// [x, y, width, height]; width/height normalized to 96 DPI.
 pub fn load_window() -> Option<[i32; 4]> {
     let text = fs::read_to_string(dir()?.join("window.txt")).ok()?;
-    let v: Vec<i32> = text.split_whitespace().filter_map(|s| s.parse().ok()).collect();
+    let v: Vec<i32> = text
+        .split_whitespace()
+        .filter_map(|s| s.parse().ok())
+        .collect();
     v.try_into().ok()
 }
 
 pub fn save_window(r: [i32; 4]) {
     if let Some(d) = dir() {
         let _ = fs::create_dir_all(&d);
-        let _ = fs::write(d.join("window.txt"), format!("{} {} {} {}", r[0], r[1], r[2], r[3]));
+        let _ = fs::write(
+            d.join("window.txt"),
+            format!("{} {} {} {}", r[0], r[1], r[2], r[3]),
+        );
     }
 }
 
@@ -65,6 +80,11 @@ mod tests {
         push_recent(&mut l, PathBuf::from("c:\\IMG5.ISO"));
         assert_eq!(l.len(), MAX_RECENT);
         assert_eq!(l[0], PathBuf::from("c:\\IMG5.ISO"));
-        assert_eq!(l.iter().filter(|p| p.to_string_lossy().eq_ignore_ascii_case("c:\\img5.iso")).count(), 1);
+        assert_eq!(
+            l.iter()
+                .filter(|p| p.to_string_lossy().eq_ignore_ascii_case("c:\\img5.iso"))
+                .count(),
+            1
+        );
     }
 }
