@@ -31,11 +31,11 @@ features = [
 ]
 
 [profile.release]
-opt-level = "s"
-lto = true
+opt-level = 3
+lto = "fat"
 codegen-units = 1
 panic = "abort"
-strip = true
+strip = "symbols"
 
 [build-dependencies]
 embed-resource = "3"
