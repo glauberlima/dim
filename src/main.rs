@@ -15,7 +15,7 @@ use std::{
     path::{Path, PathBuf},
     ptr::{null, null_mut},
     sync::{
-        Arc,
+        Arc, Mutex,
         atomic::{AtomicBool, AtomicU32, Ordering::Relaxed},
     },
 };
@@ -111,6 +111,8 @@ thread_local! {
     static CORE: RefCell<Core> = RefCell::new(Core::default());
     static FONT: Cell<HFONT> = const { Cell::new(null_mut()) };
 }
+// Result of the finished conversion; WM_DONE only signals it, so a forged message finds nothing.
+static DONE: Mutex<Option<Done>> = Mutex::new(None);
 static TASKBAR_CREATED: AtomicU32 = AtomicU32::new(0);
 static TEMP_SEQ: AtomicU32 = AtomicU32::new(0);
 static TIMER_TICKS: AtomicU32 = AtomicU32::new(0);
@@ -476,12 +478,12 @@ fn start(path: PathBuf) {
                 if res.is_err() {
                     let _ = std::fs::remove_file(&temp);
                 }
-                let done = Box::into_raw(Box::new(Done {
+                *DONE.lock().unwrap() = Some(Done {
                     image: path,
                     temp,
                     res,
-                }));
-                unsafe { PostMessageW(h, WM_DONE, 0, done as isize) };
+                });
+                unsafe { PostMessageW(h, WM_DONE, 0, 0) };
             });
         }
     }
@@ -1369,7 +1371,9 @@ unsafe extern "system" fn wnd_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM)
             set_status(&format!("Converting… {wp}%"));
         }
         WM_DONE => {
-            let d = Box::from_raw(lp as *mut Done);
+            let Some(d) = DONE.lock().unwrap().take() else {
+                return 0;
+            };
             CORE.with_borrow_mut(|c| c.job = None);
             refresh();
             match d.res {
