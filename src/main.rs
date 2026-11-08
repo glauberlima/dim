@@ -25,7 +25,13 @@ use windows_sys::Win32::{
     Graphics::Gdi::*,
     Storage::FileSystem::GetVolumeInformationW,
     System::{
-        DataExchange::*, LibraryLoader::GetModuleHandleW, Memory::*, Threading::CreateMutexW,
+        DataExchange::*,
+        Diagnostics::Debug::{
+            FORMAT_MESSAGE_FROM_SYSTEM, FORMAT_MESSAGE_IGNORE_INSERTS, FormatMessageW,
+        },
+        LibraryLoader::GetModuleHandleW,
+        Memory::*,
+        Threading::CreateMutexW,
     },
     UI::{
         Controls::{Dialogs::*, *},
@@ -91,6 +97,7 @@ struct Core {
     job: Option<Arc<AtomicBool>>, // cancel flag of the running conversion
     queue: VecDeque<PathBuf>,
     recent: Vec<PathBuf>,
+    tray_images: Vec<PathBuf>, // images behind the tray menu's "Unmount" entries, by menu position
 }
 
 struct Done {
@@ -140,6 +147,32 @@ fn msg_box(text: &str, flags: u32) {
 
 fn set_status(text: &str) {
     unsafe { SetWindowTextW(ui().status, w(text).as_ptr()) };
+}
+
+/// Error text in English: io::Error's Display follows the Windows UI language.
+fn err_text(e: &std::io::Error) -> String {
+    let Some(code) = e.raw_os_error() else {
+        return e.to_string();
+    };
+    let mut buf = [0u16; 512];
+    let n = unsafe {
+        FormatMessageW(
+            FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
+            null(),
+            code as u32,
+            0x0409, // MAKELANGID(LANG_ENGLISH, SUBLANG_ENGLISH_US)
+            buf.as_mut_ptr(),
+            buf.len() as u32,
+            null(),
+        )
+    };
+    if n == 0 {
+        return format!("Windows error {code}");
+    }
+    format!(
+        "{} (error {code})",
+        String::from_utf16_lossy(&buf[..n as usize]).trim_end()
+    )
 }
 
 fn temp_dir() -> PathBuf {
@@ -270,6 +303,23 @@ fn main() {
     }
 }
 
+/// True when enough of the window, title bar included, is inside some monitor's work area to grab it.
+unsafe fn on_screen(r: &RECT, dpi: i32) -> bool {
+    let mon = MonitorFromRect(r, MONITOR_DEFAULTTONULL);
+    if mon.is_null() {
+        return false;
+    }
+    let mut mi: MONITORINFO = zeroed();
+    mi.cbSize = size_of::<MONITORINFO>() as u32;
+    if GetMonitorInfoW(mon, &mut mi) == 0 {
+        return false;
+    }
+    let (wa, p) = (mi.rcWork, |v: i32| v * dpi / 96);
+    r.right.min(wa.right) - r.left.max(wa.left) >= p(120)
+        && r.top >= wa.top - p(8)
+        && r.top + p(40) <= wa.bottom
+}
+
 /// Restores the saved geometry if it is still on a monitor, otherwise centers on the work area.
 /// shortcut: centers on the primary monitor, not the one under the cursor.
 unsafe fn place_window(hwnd: HWND) {
@@ -281,8 +331,7 @@ unsafe fn place_window(hwnd: HWND) {
             right: x + sw * d / 96,
             bottom: y + sh * d / 96,
         };
-        (sw >= 300 && sh >= 200 && !MonitorFromRect(&r, MONITOR_DEFAULTTONULL).is_null())
-            .then_some(r)
+        (sw >= 300 && sh >= 200 && on_screen(&r, d)).then_some(r)
     });
     let r = saved.unwrap_or_else(|| {
         let mut wa: RECT = zeroed();
@@ -342,7 +391,7 @@ unsafe fn forward_to_running(args: &[PathBuf]) {
         send(0, &[0]);
     }
     for a in args {
-        let full = std::fs::canonicalize(a).unwrap_or_else(|_| a.clone());
+        let full = std::path::absolute(a).unwrap_or_else(|_| a.clone());
         send(1, &wide(full.as_os_str()));
     }
 }
@@ -378,7 +427,11 @@ fn start(path: PathBuf) {
     match convert::prepare(&path) {
         Err(e) => {
             msg_box(
-                &format!("Could not read the image:\n{}\n\n{e}", path.display()),
+                &format!(
+                    "Could not read the image:\n{}\n\n{}",
+                    path.display(),
+                    err_text(&e)
+                ),
                 MB_ICONERROR,
             );
             next_in_queue();
@@ -390,7 +443,7 @@ fn start(path: PathBuf) {
         Ok(Source::Extract(plan)) => {
             let dir = temp_dir();
             let _ = std::fs::create_dir_all(&dir);
-            let need = plan.sectors * 2048;
+            let need = plan.sectors.saturating_mul(2048);
             if convert::free_space(&dir) < need + (16 << 20) {
                 msg_box(
                     &format!(
@@ -489,7 +542,7 @@ fn finish_mount(image: PathBuf, iso: PathBuf, temp: Option<PathBuf>) {
             }
             set_status("Mount failed.");
             msg_box(
-                &format!("Could not mount:\n{}\n\n{e}", image.display()),
+                &format!("Could not mount:\n{}\n\n{}", image.display(), err_text(&e)),
                 MB_ICONERROR,
             );
         }
@@ -531,17 +584,25 @@ fn unmount(i: usize) {
 
 /// Drops mounts whose drive disappeared (Explorer "Eject", device removal).
 fn revalidate() {
-    let dead: Vec<Mount> = CORE.with_borrow_mut(|c| {
-        let (alive, dead) = std::mem::take(&mut c.mounts)
-            .into_iter()
-            .partition(|m| m.alive());
-        c.mounts = alive;
-        dead
+    let (dead, changed): (Vec<Mount>, bool) = CORE.with_borrow_mut(|c| {
+        let (mut dead, mut changed) = (vec![], false);
+        for mut m in std::mem::take(&mut c.mounts) {
+            let before = m.letter;
+            if m.alive() {
+                changed |= m.letter != before; // letter re-assigned in Disk Management
+                c.mounts.push(m);
+            } else {
+                dead.push(m);
+            }
+        }
+        (dead, changed)
     });
     if !dead.is_empty() {
         drop(dead);
         refresh();
         set_status("A drive was ejected.");
+    } else if changed {
+        refresh();
     }
 }
 
@@ -566,10 +627,14 @@ fn image_of(i: usize) -> Option<PathBuf> {
 
 unsafe fn show_in_explorer(path: &Path) {
     let args = w(&format!("/select,\"{}\"", path.display()));
+    // Full path: a bare name could be resolved from the current directory.
+    let explorer = std::env::var("SystemRoot")
+        .map(|r| format!("{r}\\explorer.exe"))
+        .unwrap_or_else(|_| "explorer.exe".into());
     ShellExecuteW(
         ui().hwnd,
         w("open").as_ptr(),
-        w("explorer.exe").as_ptr(),
+        w(&explorer).as_ptr(),
         args.as_ptr(),
         null(),
         SW_SHOWNORMAL,
@@ -846,7 +911,8 @@ unsafe fn tray_menu() {
         recent_menu(false) as usize,
         w("Mount recent").as_ptr(),
     );
-    let items: Vec<String> = CORE.with_borrow(|c| {
+    let items: Vec<String> = CORE.with_borrow_mut(|c| {
+        c.tray_images = c.mounts.iter().map(|m| m.image.clone()).collect();
         c.mounts
             .iter()
             .map(|m| {
@@ -1024,7 +1090,14 @@ unsafe fn command(id: i32) {
             }
         }
         u if (ID_MENU_UNMOUNT..ID_MENU_UNMOUNT + 100).contains(&u) => {
-            unmount((u - ID_MENU_UNMOUNT) as usize)
+            // The list may have changed while the menu was open, so look the mount up by image.
+            let i = CORE.with_borrow(|c| {
+                let img = c.tray_images.get((u - ID_MENU_UNMOUNT) as usize)?;
+                c.mounts.iter().position(|m| &m.image == img)
+            });
+            if let Some(i) = i {
+                unmount(i);
+            }
         }
         _ => {}
     }
@@ -1309,7 +1382,11 @@ unsafe extern "system" fn wnd_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM)
                 Err(e) => {
                     set_status("Conversion failed.");
                     msg_box(
-                        &format!("Error converting the image:\n{}\n\n{e}", d.image.display()),
+                        &format!(
+                            "Error converting the image:\n{}\n\n{}",
+                            d.image.display(),
+                            err_text(&e)
+                        ),
                         MB_ICONERROR,
                     );
                 }

@@ -9,12 +9,12 @@ use std::{
     time::Duration,
 };
 use windows_sys::Win32::{
-    Foundation::{CloseHandle, HANDLE},
-    Storage::FileSystem::{GetLogicalDrives, QueryDosDeviceW},
+    Foundation::{CloseHandle, ERROR_NOT_READY, GetLastError, HANDLE},
+    Storage::FileSystem::{
+        FILE_ATTRIBUTE_SPARSE_FILE, GetLogicalDrives, GetVolumeInformationW, QueryDosDeviceW,
+    },
     Storage::Vhd::*,
 };
-
-const FILE_ATTRIBUTE_SPARSE_FILE: u32 = 0x200;
 
 pub fn wide(s: &OsStr) -> Vec<u16> {
     s.encode_wide().chain([0]).collect()
@@ -23,6 +23,23 @@ pub fn wide(s: &OsStr) -> Vec<u16> {
 /// Decodes a UTF-16 buffer up to its first NUL.
 pub fn from_wide(buf: &[u16]) -> String {
     String::from_utf16_lossy(&buf[..buf.iter().position(|&c| c == 0).unwrap_or(0)])
+}
+
+/// OpenVirtualDisk does not add the extended-length prefix that std adds on its own,
+/// so absolute paths of 260+ characters need it spelled out.
+fn verbatim(p: &Path) -> PathBuf {
+    if p.as_os_str().len() < 260 {
+        return p.to_path_buf();
+    }
+    let abs = std::path::absolute(p).unwrap_or_else(|_| p.to_path_buf());
+    let s = abs.to_string_lossy();
+    if s.starts_with(r"\\?\") {
+        return abs;
+    }
+    match s.strip_prefix(r"\\") {
+        Some(unc) => PathBuf::from(format!(r"\\?\UNC\{unc}")),
+        None => PathBuf::from(format!(r"\\?\{s}")),
+    }
 }
 
 /// An attached image. Dropping it closes the handle, which detaches the drive.
@@ -34,10 +51,12 @@ pub struct Mount {
     pub size: u64,       // bytes of the mounted ISO
     pub converted: bool, // true when extracted from CUE/BIN/NRG/...
     temp: Option<PathBuf>,
+    ready_seen: bool, // the volume answered at least once, so "not ready" later means ejected
 }
 
 pub fn attach(iso: &Path, image: PathBuf, temp: Option<PathBuf>) -> io::Result<Mount> {
-    if iso.metadata()?.file_attributes() & FILE_ATTRIBUTE_SPARSE_FILE != 0 {
+    let meta = iso.metadata()?;
+    if meta.file_attributes() & FILE_ATTRIBUTE_SPARSE_FILE != 0 {
         return Err(io::Error::new(
             io::ErrorKind::Unsupported,
             format!(
@@ -46,7 +65,7 @@ pub fn attach(iso: &Path, image: PathBuf, temp: Option<PathBuf>) -> io::Result<M
             ),
         ));
     }
-    let p = wide(iso.as_os_str());
+    let p = wide(verbatim(iso).as_os_str());
     let st = VIRTUAL_STORAGE_TYPE {
         DeviceId: VIRTUAL_STORAGE_TYPE_DEVICE_ISO,
         VendorId: VIRTUAL_STORAGE_TYPE_VENDOR_MICROSOFT,
@@ -77,15 +96,15 @@ pub fn attach(iso: &Path, image: PathBuf, temp: Option<PathBuf>) -> io::Result<M
             CloseHandle(h);
             return Err(io::Error::from_raw_os_error(r as i32));
         }
-        let size = iso.metadata().map(|m| m.len()).unwrap_or(0);
         let mut m = Mount {
             handle: h,
             device: String::new(),
             letter: None,
             image,
-            size,
+            size: meta.len(),
             converted: temp.is_some(),
             temp,
+            ready_seen: false,
         };
         // mountmgr assigns the letter asynchronously; slower discs are picked up by resolve().
         for _ in 0..10 {
@@ -139,12 +158,36 @@ impl Mount {
         self.letter.is_some()
     }
 
-    /// False once the drive vanished behind our back (e.g. "Eject" in Explorer).
-    pub fn alive(&self) -> bool {
-        match self.letter {
-            Some(c) => letter_device(c).is_some_and(|d| d.eq_ignore_ascii_case(&self.device)),
-            None => true,
+    /// False once the drive vanished behind our back: the device lost its letter, or its media
+    /// was ejected (Explorer "Eject" keeps the letter but the volume stops answering).
+    /// Follows the device if the letter was changed in Disk Management.
+    pub fn alive(&mut self) -> bool {
+        if self.letter.is_none() {
+            return true;
         }
+        let Some(now) = find_letter(&self.device) else {
+            return false;
+        };
+        self.letter = Some(now);
+        let root = wide(OsStr::new(&format!("{now}:\\")));
+        let ok = unsafe {
+            GetVolumeInformationW(
+                root.as_ptr(),
+                null_mut(),
+                0,
+                null_mut(),
+                null_mut(),
+                null_mut(),
+                null_mut(),
+                0,
+            )
+        } != 0;
+        if ok {
+            self.ready_seen = true;
+            return true;
+        }
+        // Before the first success a not-ready volume is just still mounting.
+        !(self.ready_seen && unsafe { GetLastError() } == ERROR_NOT_READY)
     }
 }
 

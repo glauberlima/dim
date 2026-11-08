@@ -112,6 +112,15 @@ fn msf(s: &str) -> Option<u64> {
     Some((m * 60 + s) * 75 + f)
 }
 
+/// A FILE token naming a network share or device (`\\host\share`, `\\.\pipe\x`, `\\?\...`).
+fn is_remote_or_device(token: &str) -> bool {
+    use std::path::{Component, Prefix};
+    matches!(
+        Path::new(token).components().next(),
+        Some(Component::Prefix(p)) if !matches!(p.kind(), Prefix::Disk(_))
+    )
+}
+
 fn from_cue(cue: &Path) -> io::Result<Source> {
     let bytes = std::fs::read(cue)?;
     // shortcut: non-UTF-8 cues are decoded as Latin-1, other ANSI code pages may mangle names.
@@ -122,6 +131,7 @@ fn from_cue(cue: &Path) -> io::Result<Source> {
     let mut layout = None::<(u64, u64)>; // current track if it is a data track
     let mut plan = None::<Plan>;
     let mut end = None::<u64>; // first index after the data track, in bytes
+    let mut next_track = false; // a TRACK after the data track has started
     for line in text.lines() {
         let t = tokens(line.trim());
         match t.first().map(|s| s.to_ascii_uppercase()).as_deref() {
@@ -129,17 +139,28 @@ fn from_cue(cue: &Path) -> io::Result<Source> {
                 if plan.is_some() {
                     break;
                 }
+                if is_remote_or_device(&t[1]) {
+                    return Err(bad("FILE must not be a network or device path"));
+                }
                 file = Some(dir.join(&t[1]));
                 binary = t[2].eq_ignore_ascii_case("BINARY");
             }
-            Some("TRACK") if t.len() >= 3 && plan.is_none() => {
-                layout = mode_layout(&t[2].to_ascii_uppercase());
+            Some("TRACK") if t.len() >= 3 => {
+                if plan.is_none() {
+                    layout = mode_layout(&t[2].to_ascii_uppercase());
+                } else {
+                    next_track = true;
+                }
             }
             Some("INDEX") if t.len() >= 3 => {
                 let Some(frames) = msf(&t[2]) else { continue };
                 if let Some(p) = &plan {
-                    end = Some(frames * p.stride);
-                    break;
+                    // Only the next track ends the data track; its own INDEX 02.. do not.
+                    if next_track {
+                        end = Some(frames * p.stride);
+                        break;
+                    }
+                    continue;
                 }
                 if t[1] == "01"
                     && let (Some((stride, user_off)), Some(src)) = (layout, file.clone())
@@ -197,6 +218,10 @@ fn from_nrg(path: &Path) -> io::Result<Source> {
         if &id == b"END!" {
             return Err(bad("NRG file has no data track"));
         }
+        // A chunk cannot be larger than what is left of the file; avoids a huge allocation.
+        if size as u64 > len.saturating_sub(f.stream_position()?) {
+            return Err(bad("invalid NRG file"));
+        }
         let mut body = vec![0u8; size];
         f.read_exact(&mut body)?;
         let (entry, wide) = match &id {
@@ -206,6 +231,15 @@ fn from_nrg(path: &Path) -> io::Result<Source> {
         };
         if body.len() < entry {
             return Err(bad("invalid NRG file"));
+        }
+        // Track mode follows offset and size; 7 is an audio track.
+        let mode = if wide {
+            u32::from_be_bytes(body[16..20].try_into().unwrap())
+        } else {
+            u32::from_be_bytes(body[8..12].try_into().unwrap())
+        };
+        if mode == 7 {
+            continue;
         }
         let (offset, tsize) = if wide {
             (
@@ -387,5 +421,43 @@ mod tests {
         f.extend(chunks.to_be_bytes());
         std::fs::write(d.join("a.nrg"), f).unwrap();
         assert_eq!(run(prepare(&d.join("a.nrg")).unwrap(), &d), pl);
+    }
+
+    #[test]
+    fn cue_network_or_device_file_is_error() {
+        let d = dir("cue4");
+        for f in [r"\\host\share\a.bin", r"\\.\pipe\x"] {
+            let cue = format!("FILE \"{f}\" BINARY\n TRACK 01 MODE1/2352\n  INDEX 01 00:00:00\n");
+            std::fs::write(d.join("x.cue"), cue).unwrap();
+            assert!(prepare(&d.join("x.cue")).is_err(), "{f}");
+        }
+    }
+
+    #[test]
+    fn cue_subindex_of_data_track_does_not_truncate() {
+        let d = dir("cue5");
+        let pl = payload(3);
+        let mut bin = wrap(&pl, 2352, 1, 16);
+        bin.extend(vec![5u8; 2352 * 4]);
+        std::fs::write(d.join("d.bin"), bin).unwrap();
+        std::fs::write(
+            d.join("x.cue"),
+            "FILE d.bin BINARY\n TRACK 01 MODE1/2352\n  INDEX 01 00:00:00\n  INDEX 02 00:00:01\n TRACK 02 AUDIO\n  INDEX 01 00:00:03\n",
+        )
+        .unwrap();
+        assert_eq!(run(prepare(&d.join("x.cue")).unwrap(), &d), pl);
+    }
+
+    #[test]
+    fn nrg_oversized_chunk_is_error() {
+        let d = dir("nrg2");
+        let mut f = vec![0u8; 16];
+        let chunks = f.len() as u64;
+        f.extend(b"ETN2");
+        f.extend(u32::MAX.to_be_bytes());
+        f.extend(b"NER5");
+        f.extend(chunks.to_be_bytes());
+        std::fs::write(d.join("a.nrg"), f).unwrap();
+        assert!(prepare(&d.join("a.nrg")).is_err());
     }
 }

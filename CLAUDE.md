@@ -7,7 +7,7 @@ Disk Image Mounter (`dim.exe`) is a tiny Windows 10/11 x64 GUI that mounts disc 
 ## Commands
 
 ```sh
-cargo build --release            # -> target/release/dim.exe (~300 KB)
+cargo build --release            # -> target/release/dim.exe (~340 KB)
 cargo test                       # unit tests (convert.rs, store.rs)
 cargo test cue_audio_only        # single test by name substring
 cargo run --release -- "C:\path\image.cue"   # paths on the command line are mounted on start

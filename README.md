@@ -1,6 +1,6 @@
 # dim — Disk Image Mounter
 
-Minimal disc image mounter for Windows 10/11 x64. No driver, no admin, ~210 KB, ~11 MB RAM, 0% CPU idle.
+Minimal disc image mounter for Windows 10/11 x64. No driver, no admin, ~340 KB, ~11 MB RAM, 0% CPU idle.
 
 Mounts through the native virtdisk API, so images show up as a real optical drive.
 
