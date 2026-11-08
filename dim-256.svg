@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="100%" height="100%">
+  <!-- Fundo transparente implícito -->
+  <g id="Disco">
+    <!-- Base Circular do Disco -->
+    <circle cx="128" cy="128" r="110" fill="#0E7A94" stroke="#065266" stroke-width="6" />
+    
+    <!-- Brilhos / Setores de Reflexo do CD (Estilo Fluent) -->
+    <!-- Quadrante Superior Direito (Claro) -->
+    <path d="M 128 128 L 128 18 A 110 110 0 0 1 231.8 90.5 Z" fill="#7CE3F6" opacity="0.8" />
+    <path d="M 128 128 L 231.8 90.5 A 110 110 0 0 1 238 128 Z" fill="#00ADEF" opacity="0.6" />
+    <!-- Quadrante Inferior Esquerdo (Médio/Claro) -->
+    <path d="M 128 128 L 128 238 A 110 110 0 0 1 40 178 Z" fill="#46EEFF" opacity="0.7" />
+    <path d="M 128 128 L 40 178 A 110 110 0 0 1 22.1 146.4 Z" fill="#A8F3FF" opacity="0.5" />
+    <path d="M 128 128 L 22.1 146.4 A 110 110 0 0 1 18 128 Z" fill="#00A2E2" opacity="0.4" />
+
+    <!-- Anel de Dados / Interno -->
+    <circle cx="128" cy="128" r="46" fill="none" stroke="#23B2D2" stroke-width="12" opacity="0.5" />
+
+    <!-- Centro do Disco (Furo Central) -->
+    <circle cx="128" cy="128" r="34" fill="#BCEFFB" stroke="#0A5B70" stroke-width="4" />
+    <circle cx="128" cy="128" r="16" fill="none" stroke="#04333F" stroke-width="4" />
+    <!-- O buraco físico é transparente ou cor de fundo, aqui usei um vazamento circular para dar o aspecto de furo -->
+    <circle cx="128" cy="128" r="14" fill="#ffffff" opacity="0" /> 
+  </g>
+
+  <!-- Detalhe de Unidade de Montagem (Virtual Drive / Eject icon) no Canto Inferior Direito -->
+  <g id="Icone-Montar">
+    <!-- Pequena Base do Drive / Suporte -->
+    <path d="M 166 188 L 194 188 L 194 192 L 166 192 Z" fill="#FFFFFF" />
+    <!-- Seta / Triângulo de Entrada/Montagem (Sugerindo inserção) -->
+    <polygon points="180,168 168,183 192,183" fill="#FFFFFF" />
+  </g>
+</svg>
