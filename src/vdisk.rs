@@ -20,6 +20,11 @@ pub fn wide(s: &OsStr) -> Vec<u16> {
     s.encode_wide().chain([0]).collect()
 }
 
+/// Decodes a UTF-16 buffer up to its first NUL.
+pub fn from_wide(buf: &[u16]) -> String {
+    String::from_utf16_lossy(&buf[..buf.iter().position(|&c| c == 0).unwrap_or(0)])
+}
+
 /// An attached image. Dropping it closes the handle, which detaches the drive.
 pub struct Mount {
     handle: HANDLE,
@@ -77,15 +82,14 @@ fn physical_device(h: HANDLE) -> String {
     if unsafe { GetVirtualDiskPhysicalPath(h, &mut size, buf.as_mut_ptr()) } != 0 {
         return String::new();
     }
-    let s = String::from_utf16_lossy(&buf[..buf.iter().position(|&c| c == 0).unwrap_or(0)]);
-    s.to_ascii_uppercase().strip_prefix(r"\\.\CDROM").map(|n| format!(r"\Device\CdRom{n}")).unwrap_or_default()
+    from_wide(&buf).to_ascii_uppercase().strip_prefix(r"\\.\CDROM").map(|n| format!(r"\Device\CdRom{n}")).unwrap_or_default()
 }
 
 fn letter_device(letter: char) -> Option<String> {
     let name: Vec<u16> = format!("{letter}:").encode_utf16().chain([0]).collect();
     let mut buf = [0u16; 260];
     let n = unsafe { QueryDosDeviceW(name.as_ptr(), buf.as_mut_ptr(), buf.len() as u32) };
-    (n != 0).then(|| String::from_utf16_lossy(&buf[..buf.iter().position(|&c| c == 0).unwrap_or(0)]))
+    (n != 0).then(|| from_wide(&buf))
 }
 
 fn find_letter(device: &str) -> Option<char> {

@@ -135,13 +135,13 @@ fn from_cue(cue: &Path) -> io::Result<Source> {
                     end = Some(frames * p.stride);
                     break;
                 }
-                if t[1] == "01" {
-                    if let (Some((stride, user_off)), Some(src)) = (layout, file.clone()) {
-                        if !binary {
-                            return Err(bad("data track is in a file that is not BINARY"));
-                        }
-                        plan = Some(Plan { src, offset: frames * stride, stride, user_off, sectors: 0 });
+                if t[1] == "01"
+                    && let (Some((stride, user_off)), Some(src)) = (layout, file.clone())
+                {
+                    if !binary {
+                        return Err(bad("data track is in a file that is not BINARY"));
                     }
+                    plan = Some(Plan { src, offset: frames * stride, stride, user_off, sectors: 0 });
                 }
             }
             _ => {}
@@ -223,7 +223,7 @@ pub fn extract(p: &Plan, out: &Path, cancel: &AtomicBool, progress: &mut dyn FnM
     for i in 0..p.sectors {
         if i % 512 == 0 {
             if cancel.load(Relaxed) {
-                return Err(io::Error::new(io::ErrorKind::Interrupted, "cancelado"));
+                return Err(io::Error::new(io::ErrorKind::Interrupted, "canceled"));
             }
             progress((i * 100 / p.sectors) as u8);
         }

@@ -1,5 +1,8 @@
 //! Tiny persistence in %APPDATA%\dim: recent images and window geometry.
-use std::{fs, path::PathBuf};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
 
 pub const MAX_RECENT: usize = 10;
 
@@ -20,11 +23,15 @@ pub fn save_recent(list: &[PathBuf]) {
     }
 }
 
+/// Case-insensitive identity of a path (Windows paths compare that way).
+pub fn path_key(p: &Path) -> String {
+    p.to_string_lossy().to_lowercase()
+}
+
 /// Moves `p` to the front (case-insensitive dedupe) and keeps at most MAX_RECENT entries.
 pub fn push_recent(list: &mut Vec<PathBuf>, p: PathBuf) {
-    let key = |p: &PathBuf| p.to_string_lossy().to_lowercase();
-    let k = key(&p);
-    list.retain(|x| key(x) != k);
+    let k = path_key(&p);
+    list.retain(|x| path_key(x) != k);
     list.insert(0, p);
     list.truncate(MAX_RECENT);
 }

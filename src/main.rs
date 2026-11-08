@@ -45,7 +45,7 @@ const ID_UNMOUNT: i32 = 102;
 const ID_CANCEL: i32 = 103;
 const ID_QUIT: i32 = 104;
 const ID_ABOUT: i32 = 105;
-const ID_MENU_UNMOUNT: i32 = 300; // 300..400: tray "Desmontar X:" entries
+const ID_MENU_UNMOUNT: i32 = 300; // 300..400: tray "Unmount X:" entries
 const ID_RECENT: i32 = 400; // 400..410
 const ID_CLEAR_RECENT: i32 = 420;
 const ID_CTX_OPEN: i32 = 430;
@@ -143,15 +143,20 @@ fn temp_dir() -> PathBuf {
 }
 
 fn human_size(n: u64) -> String {
-    let s = if n >= 1 << 30 { format!("{:.1} GB", n as f64 / (1u64 << 30) as f64) } else if n >= 1 << 20 { format!("{} MB", n >> 20) } else { format!("{} KB", n >> 10) };
-    s
+    if n >= 1 << 30 {
+        format!("{:.1} GB", n as f64 / (1u64 << 30) as f64)
+    } else if n >= 1 << 20 {
+        format!("{} MB", n >> 20)
+    } else {
+        format!("{} KB", n >> 10)
+    }
 }
 
 fn volume_label(letter: char) -> String {
     let root = w(&format!("{letter}:\\"));
     let mut buf = [0u16; 261];
     let ok = unsafe { GetVolumeInformationW(root.as_ptr(), buf.as_mut_ptr(), 261, null_mut(), null_mut(), null_mut(), null_mut(), 0) };
-    if ok == 0 { String::new() } else { String::from_utf16_lossy(&buf[..buf.iter().position(|&c| c == 0).unwrap_or(0)]) }
+    if ok == 0 { String::new() } else { vdisk::from_wide(&buf) }
 }
 
 fn main() {
@@ -216,12 +221,12 @@ fn main() {
         }
 
         let accel = CreateAcceleratorTableW(
-            &ACCEL { fVirt: (FCONTROL | FVIRTKEY) as u8, key: b'O' as u16, cmd: ID_MOUNT as u16 },
+            &ACCEL { fVirt: (FCONTROL | FVIRTKEY), key: b'O' as u16, cmd: ID_MOUNT as u16 },
             1,
         );
         let mut m: MSG = zeroed();
         while GetMessageW(&mut m, null_mut(), 0, 0) > 0 {
-            if TranslateAcceleratorW(hwnd, accel, &m) == 0 && IsDialogMessageW(hwnd, &mut m) == 0 {
+            if TranslateAcceleratorW(hwnd, accel, &m) == 0 && IsDialogMessageW(hwnd, &m) == 0 {
                 TranslateMessage(&m);
                 DispatchMessageW(&m);
             }
@@ -292,8 +297,8 @@ fn request_mount(path: PathBuf) {
 }
 
 fn start(path: PathBuf) {
-    let key = |p: &Path| p.to_string_lossy().to_lowercase();
-    let dup = CORE.with_borrow(|c| c.mounts.iter().position(|m| key(&m.image) == key(&path)));
+    let key = store::path_key(&path);
+    let dup = CORE.with_borrow(|c| c.mounts.iter().position(|m| store::path_key(&m.image) == key));
     if let Some(i) = dup {
         select(i);
         set_status("That image is already mounted.");
@@ -344,6 +349,14 @@ fn next_in_queue() {
     if let Some(p) = CORE.with_borrow_mut(|c| c.queue.pop_front()) {
         start(p);
     }
+}
+
+fn cancel_job() {
+    CORE.with_borrow(|c| {
+        if let Some(f) = &c.job {
+            f.store(true, Relaxed);
+        }
+    });
 }
 
 fn add_recent(image: &Path) {
@@ -522,7 +535,9 @@ fn refresh() {
 /// App icon (resource 1) at the size Windows wants for this DPI.
 unsafe fn icon(metric: SYSTEM_METRICS_INDEX) -> HICON {
     let px = GetSystemMetricsForDpi(metric, GetDpiForWindow(ui().hwnd).max(96));
-    LoadImageW(GetModuleHandleW(null()), 1 as usize as *const u16, IMAGE_ICON, px, px, LR_DEFAULTCOLOR) as HICON
+    #[allow(clippy::manual_dangling_ptr)] // MAKEINTRESOURCE(1), not a dangling pointer
+    let res = 1_usize as *const u16;
+    LoadImageW(GetModuleHandleW(null()), res, IMAGE_ICON, px, px, LR_DEFAULTCOLOR) as HICON
 }
 
 unsafe extern "system" fn about_cb(_: HWND, n: u32, _: WPARAM, lp: LPARAM, _: isize) -> i32 {
@@ -591,7 +606,7 @@ unsafe fn recent_menu(header: bool) -> HMENU {
     let m = CreatePopupMenu();
     let items: Vec<PathBuf> = CORE.with_borrow(|c| c.recent.clone());
     if header {
-        AppendMenuW(m, MF_STRING | MF_GRAYED, 0, w("Montar recentes").as_ptr());
+        AppendMenuW(m, MF_STRING | MF_GRAYED, 0, w("Mount recent").as_ptr());
         AppendMenuW(m, MF_SEPARATOR, 0, null());
     }
     if items.is_empty() {
@@ -723,11 +738,7 @@ unsafe fn command(id: i32) {
             Some(i) => unmount(i),
             None => set_status("Select a drive in the list."),
         },
-        ID_CANCEL => CORE.with_borrow(|c| {
-            if let Some(f) = &c.job {
-                f.store(true, Relaxed);
-            }
-        }),
+        ID_CANCEL => cancel_job(),
         ID_ABOUT => about(),
         ID_QUIT => {
             if confirm_quit() {
@@ -779,7 +790,7 @@ unsafe fn create_children(hwnd: HWND) {
         cancel: mk("BUTTON", "Cancel", btn, ID_CANCEL),
         about: mk("BUTTON", "About", btn, ID_ABOUT),
         status: mk("STATIC", "Ready.", 0, 0),
-        progress: mk("msctls_progress32", "", PBS_SMOOTH as u32, 0),
+        progress: mk("msctls_progress32", "", PBS_SMOOTH, 0),
     };
     UI.set(u);
     SendMessageW(u.list, LVM_SETEXTENDEDLISTVIEWSTYLE, 0, LVS_EX_FULLROWSELECT as isize);
@@ -935,7 +946,7 @@ unsafe extern "system" fn wnd_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM)
                 refresh();
                 mounted_notice(l);
             }
-            // Give up after ~60 s; the row stays "(sem letra)".
+            // Give up after ~60 s; the row stays "(no letter)".
             if !pending || TIMER_TICKS.fetch_add(1, Relaxed) > 120 {
                 KillTimer(hwnd, 1);
             }
@@ -978,11 +989,7 @@ unsafe extern "system" fn wnd_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM)
         }
         WM_DESTROY => {
             save_geometry();
-            CORE.with_borrow(|c| {
-                if let Some(f) = &c.job {
-                    f.store(true, Relaxed);
-                }
-            });
+            cancel_job();
             tray(NIM_DELETE);
             let mounts = CORE.with_borrow_mut(|c| std::mem::take(&mut c.mounts));
             drop(mounts);
