@@ -159,7 +159,7 @@ AI coding agents and contributors: start with [AGENTS.md](AGENTS.md).
 
 Generative AI wrote most of this project. The Rust code, tests, documentation and CI workflows were produced
 with [Claude Code](https://claude.com/claude-code) (Anthropic). The developer set the goals and design
-decisions, reviewed the generated changes, tested the app on Windows, and is responsible for the result.
+decisions, carefully reviewed the generated code, tested the app on Windows, and is responsible for the result.
 Bugs are possible: please [open an issue](https://github.com/glauberlima/dim/issues).
 
 ## License
