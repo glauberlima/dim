@@ -12,7 +12,7 @@
 [![Size](https://img.shields.io/badge/exe-~340%20KB-success?style=flat-square)](#why-dim)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green?style=flat-square)](LICENSE)
 
-[Quick start](#quick-start) · [Formats](#supported-formats) · [Shortcuts](#shortcuts-and-command-line) · [How it works](#how-it-works) · [Limits](#limits) · [FAQ](#faq) · [Build](#build-from-source)
+[Quick start](#quick-start) · [Formats](#supported-formats) · [Shortcuts](#shortcuts-and-command-line) · [How it works](#how-it-works) · [Limits](#limits) · [FAQ](#faq) · [Build](#build-from-source) · [AI disclosure](#ai-disclosure)
 
 <img src="docs/images/screenshot.png" alt="dim main window: empty drive list with a drag-and-drop hint" width="720">
 
@@ -154,6 +154,13 @@ src/
 ```
 
 AI coding agents and contributors: start with [AGENTS.md](AGENTS.md).
+
+## AI disclosure
+
+Generative AI wrote most of this project. The Rust code, tests, documentation and CI workflows were produced
+with [Claude Code](https://claude.com/claude-code) (Anthropic). The developer set the goals and design
+decisions, reviewed the generated changes, tested the app on Windows, and is responsible for the result.
+Bugs are possible: please [open an issue](https://github.com/glauberlima/dim/issues).
 
 ## License
 
