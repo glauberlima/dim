@@ -9,10 +9,12 @@ Mounts through the native virtdisk API, so images show up as a real optical driv
 - **Recent images:** the arrow on *Mount…* lists the last 10 mounted images (also in the tray menu). Right-click a row for open / show in Explorer / copy path.
 - **Window:** remembers position and size. `dim.exe --tray` starts hidden in the tray; a balloon announces mounts made while hidden.
 - **Mounts last while dim runs.** If dim exits or crashes, Windows detaches the drives.
-- **Formats:** ISO (CD/DVD/Blu-ray UDF) mounts directly. BIN/IMG (raw 2352/2448), CUE, MDF/MDS, CCD/IMG and NRG
-  have their first data track extracted to `%TEMP%\dim\*.iso` (needs free space = image size; removed on unmount).
+- **Formats:** ISO (CD/DVD/Blu-ray UDF) mounts directly. CUE/BIN, IMG, RAW (any extension; detected by content, 2352/2448 bytes per sector)
+  and NRG (Nero) have their first data track extracted to `%TEMP%\dim\*.iso` (needs free space = image size; removed on unmount).
+  MDS/MDF and CCD/IMG are basic: the metadata file is not parsed, only the sibling `.mdf`/`.img` is read as a raw image.
 
 ## Limits
+- MDS/MDF and CCD/IMG work only for a single simple data track starting at LBA 0 (no multi-session or multi-track images).
 - Audio tracks are not emulated. Mode 2 Form 2 data (VCD/PS1 streams) is wrong.
 - Compressed formats (CSO, CHD, ISZ, DAA, ECM) are unsupported.
 - "Sparse" ISOs (common from torrents) can't be mounted by Windows; dim shows the `fsutil sparse setflag` fix.
