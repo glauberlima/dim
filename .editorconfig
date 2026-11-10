@@ -11,5 +11,9 @@ trim_trailing_whitespace = true
 [*.md]
 trim_trailing_whitespace = false
 
+# 2-space files: manifest, resource script, SVG, TOML, YAML (GitHub workflows).
+[*.{toml,yml,yaml,manifest,rc,svg}]
+indent_size = 2
+
 [Cargo.lock]
 end_of_line = lf

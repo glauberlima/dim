@@ -1,1 +1,25 @@
+# Build output
 /target
+
+# Test images: dim only reads them, they never belong in the repo
+# (unit tests build their own in %TEMP%). Force-add with `git add -f` for a real fixture.
+*.iso
+*.bin
+*.cue
+*.img
+*.nrg
+*.mdf
+*.mds
+*.ccd
+*.sub
+
+# Local tooling and editors
+/.claude/settings.local.json
+.vscode/
+.idea/
+*.rs.bk
+*.log
+
+# OS noise
+Thumbs.db
+desktop.ini
