@@ -1238,7 +1238,9 @@ unsafe fn layout() {
         (lw - fixed.iter().sum::<i32>() - p(28)).max(p(60)) as isize,
     );
     let hh = p(44);
-    MoveWindow(u.hint, m, m + (lh - hh) / 2 + p(10), lw, hh, 1);
+    // Inset by the list's 2 px client edge so the hint doesn't paint over the border.
+    let e = p(2);
+    MoveWindow(u.hint, m + e, m + (lh - hh) / 2 + p(10), lw - 2 * e, hh, 1);
     MoveWindow(u.mount, m, by, bw, bh, 1);
     MoveWindow(u.unmount, m + bw + m, by, bw, bh, 1);
     MoveWindow(u.cancel, m + 2 * (bw + m), by, bw, bh, 1);
