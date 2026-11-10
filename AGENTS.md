@@ -17,7 +17,7 @@ cargo run --release -- "C:\path\image.cue"   # paths on the command line are mou
 
 - **A running `dim.exe` locks the binary.** Close it (tray → Quit, or `taskkill /F /IM dim.exe`) before `cargo build --release`, or the link step fails with "Access denied". Killing it detaches every mounted drive.
 - **Flags:** `--tray` starts hidden in the tray.
-- **Icon:** `assets/app.ico` is generated from `assets/dim-256.svg` with ImageMagick. Sizes 16, 20 and 24 px use a simplified SVG without the eject badge and the thin rings. The 256 px entry must be PNG-compressed, because a BMP 256 entry adds about 260 KB to the exe. `build.rs` embeds `assets/app.ico` through `embed-resource` (`assets/app.rc`) and embeds `assets/app.manifest` with linker args.
+- **Icon:** `assets/app.ico` is generated from `assets/app.svg` with ImageMagick. Sizes 16, 20 and 24 px use a simplified SVG without the eject badge and the thin rings. The 256 px entry must be PNG-compressed, because a BMP 256 entry adds about 260 KB to the exe. `build.rs` embeds `assets/app.ico` through `embed-resource` (`assets/app.rc`) and embeds `assets/app.manifest` with linker args.
 
 ## Architecture
 
