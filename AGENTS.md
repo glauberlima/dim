@@ -17,6 +17,7 @@ cargo run --release -- "C:\path\image.cue"   # paths on the command line are mou
 
 - **A running `dim.exe` locks the binary.** Close it (tray → Quit, or `taskkill /F /IM dim.exe`) before `cargo build --release`, or the link step fails with "Access denied". Killing it detaches every mounted drive.
 - **CI:** `.github/workflows/ci.yml` (windows-latest) runs fmt, clippy `-D warnings`, tests, a release build and a size guard (exe < 600 KB). `release.yml` publishes `dim.exe` and `checksums.txt` when a `v*` tag is pushed. Keep action versions pinned by commit SHA.
+- **Release:** bump the version in `Cargo.toml`, the `dim` entry of `Cargo.lock` and `assets/app.rc` (4 places), merge through a PR (`main` is protected), then `git tag -a vX.Y.Z -m vX.Y.Z && git push origin vX.Y.Z`; `release.yml` publishes.
 - **Layout:** `assets/` (icon, manifest, rc, logo SVG), `docs/images/` (README screenshot), `src/` (code).
 - **Flags:** `--tray` starts hidden in the tray.
 - **Icon:** `assets/app.ico` is generated from `assets/app.svg` with ImageMagick. Sizes 16, 20 and 24 px use a simplified SVG without the eject badge and the thin rings. The 256 px entry must be PNG-compressed, because a BMP 256 entry adds about 260 KB to the exe. `build.rs` embeds `assets/app.ico` through `embed-resource` (`assets/app.rc`) and embeds `assets/app.manifest` with linker args.
